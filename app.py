@@ -92,6 +92,10 @@ class VideoCaptureThread(threading.Thread):
 
         cap.release()
 
+# Start video capture thread
+video_thread = VideoCaptureThread()
+video_thread.start()
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -100,91 +104,103 @@ def index():
 def video_feed():
     global data, is_capturing, num_samples, samples_captured, current_class, is_predicting, trained_model, capturing_complete
 
-    # Récupérer les données de l'image depuis la requête POST
-    image_data = request.json['image']
-    image_data = image_data.split(',')[1]  # Supprimer le préfixe de l'URL data:image/jpeg;base64,
-    image_data = base64.b64decode(image_data)
-    image = Image.open(io.BytesIO(image_data))
-    frame = np.array(image)
+    try:
+        # Récupérer les données de l'image depuis la requête POST
+        image_data = request.json['image']
+        image_data = image_data.split(',')[1]  # Supprimer le préfixe de l'URL data:image/jpeg;base64,
+        image_data = base64.b64decode(image_data)
+        image = Image.open(io.BytesIO(image_data))
+        frame = np.array(image)
 
-    # Traiter l'image avec Mediapipe
-    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    with mp_holistic.Holistic(min_detection_confidence=0.5, min_tracking_confidence=0.5) as holistic:
-        results = holistic.process(frame_rgb)
+        # Traiter l'image avec Mediapipe
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        with mp_holistic.Holistic(min_detection_confidence=0.5, min_tracking_confidence=0.5) as holistic:
+            results = holistic.process(frame_rgb)
 
-        if results.right_hand_landmarks or results.left_hand_landmarks:
-            landmarks = []
+            if results.right_hand_landmarks or results.left_hand_landmarks:
+                landmarks = []
 
-            if results.right_hand_landmarks:
-                for landmark in results.right_hand_landmarks.landmark:
-                    landmarks.extend([landmark.x, landmark.y, landmark.z])
-                mp_drawing.draw_landmarks(
-                    frame, results.right_hand_landmarks, mp_holistic.HAND_CONNECTIONS,
-                    mp_drawing.DrawingSpec(color=(80, 22, 10), thickness=2, circle_radius=4),
-                    mp_drawing.DrawingSpec(color=(80, 44, 121), thickness=2, circle_radius=2)
-                )
+                if results.right_hand_landmarks:
+                    for landmark in results.right_hand_landmarks.landmark:
+                        landmarks.extend([landmark.x, landmark.y, landmark.z])
+                    mp_drawing.draw_landmarks(
+                        frame, results.right_hand_landmarks, mp_holistic.HAND_CONNECTIONS,
+                        mp_drawing.DrawingSpec(color=(80, 22, 10), thickness=2, circle_radius=4),
+                        mp_drawing.DrawingSpec(color=(80, 44, 121), thickness=2, circle_radius=2)
+                    )
 
-            if results.left_hand_landmarks:
-                for landmark in results.left_hand_landmarks.landmark:
-                    landmarks.extend([landmark.x, landmark.y, landmark.z])
-                mp_drawing.draw_landmarks(
-                    frame, results.left_hand_landmarks, mp_holistic.HAND_CONNECTIONS,
-                    mp_drawing.DrawingSpec(color=(121, 22, 76), thickness=2, circle_radius=4),
-                    mp_drawing.DrawingSpec(color=(121, 44, 250), thickness=2, circle_radius=2)
-                )
+                if results.left_hand_landmarks:
+                    for landmark in results.left_hand_landmarks.landmark:
+                        landmarks.extend([landmark.x, landmark.y, landmark.z])
+                    mp_drawing.draw_landmarks(
+                        frame, results.left_hand_landmarks, mp_holistic.HAND_CONNECTIONS,
+                        mp_drawing.DrawingSpec(color=(121, 22, 76), thickness=2, circle_radius=4),
+                        mp_drawing.DrawingSpec(color=(121, 44, 250), thickness=2, circle_radius=2)
+                    )
 
-            if is_capturing and samples_captured < num_samples:
-                data.append([current_class] + landmarks)
-                samples_captured += 1
-                cv2.putText(frame, f'Capturing: {current_class} ({samples_captured}/{num_samples})', (10, 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2, cv2.LINE_AA)
-                if samples_captured >= num_samples:
-                    capturing_complete = True
+                if is_capturing and samples_captured < num_samples:
+                    data.append([current_class] + landmarks)
+                    samples_captured += 1
+                    cv2.putText(frame, f'Capturing: {current_class} ({samples_captured}/{num_samples})', (10, 30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2, cv2.LINE_AA)
+                    if samples_captured >= num_samples:
+                        capturing_complete = True
 
-            if is_predicting and trained_model:
-                prediction = trained_model.predict([landmarks])[0]
-                cv2.putText(frame, f'Prediction: {prediction}', (10, 70),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+                if is_predicting and trained_model:
+                    prediction = trained_model.predict([landmarks])[0]
+                    cv2.putText(frame, f'Prediction: {prediction}', (10, 70),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
 
-    return '', 204
+        return '', 204
+    except Exception as e:
+        print(f"Error processing video frame: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/start_capture', methods=['POST'])
 def start_capture():
     global is_capturing, current_class, num_samples, samples_captured, data, capturing_complete
 
-    capture_info = request.get_json()
-    num_samples = int(capture_info['num_samples'])
-    class_names = capture_info['class_names']
+    try:
+        capture_info = request.get_json()
+        num_samples = int(capture_info['num_samples'])
+        class_names = capture_info['class_names']
 
-    for class_name in class_names:
-        current_class = class_name
-        samples_captured = 0
-        is_capturing = True
-        while samples_captured < num_samples:
-            time.sleep(0.1)
-        is_capturing = False
+        for class_name in class_names:
+            current_class = class_name
+            samples_captured = 0
+            is_capturing = True
+            while samples_captured < num_samples:
+                time.sleep(0.1)
+            is_capturing = False
 
-    # Convertir les données en DataFrame et les sauvegarder dans un fichier CSV
-    columns = ['label'] + [f'{i}_{axis}' for i in range(21) for axis in ['x', 'y', 'z']]
-    df = pd.DataFrame(data, columns=columns)
-    df.to_csv('hand_gestures.csv', index=False)
+        # Convertir les données en DataFrame et les sauvegarder dans un fichier CSV
+        columns = ['label'] + [f'{i}_{axis}' for i in range(21) for axis in ['x', 'y', 'z']]
+        df = pd.DataFrame(data, columns=columns)
+        df.to_csv('hand_gestures.csv', index=False)
 
-    return jsonify({'message': 'Capture completed.', 'success': True})
+        return jsonify({'message': 'Capture completed.', 'success': True})
+    except Exception as e:
+        print(f"Error in start_capture: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/train_model', methods=['POST'])
 def train_model():
     global trained_model
 
-    df = pd.read_csv('hand_gestures.csv')
-    X = df.drop('label', axis=1)
-    y = df['label']
+    try:
+        df = pd.read_csv('hand_gestures.csv')
+        X = df.drop('label', axis=1)
+        y = df['label']
 
-    model = DecisionTreeClassifier()
-    model.fit(X, y)
+        model = DecisionTreeClassifier()
+        model.fit(X, y)
 
-    trained_model = model
+        trained_model = model
 
-    return jsonify({'message': 'Model trained successfully.', 'success': True})
+        return jsonify({'message': 'Model trained successfully.', 'success': True})
+    except Exception as e:
+        print(f"Error in train_model: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/start_prediction', methods=['POST'])
 def start_prediction():
