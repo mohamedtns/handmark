@@ -38,6 +38,7 @@ class VideoCaptureThread(threading.Thread):
             while not self.stopped:
                 ret, frame = cap.read()
                 if not ret:
+                    print("Failed to capture image")
                     break
 
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -94,6 +95,7 @@ def index():
 
 @app.route('/video_feed')
 def video_feed():
+    print("video_feed route called")
     return Response(video_thread.run(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/start_capture', methods=['POST'])
