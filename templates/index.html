@@ -47,24 +47,46 @@
     <div id="capture-message"></div>
     <div id="prediction"></div>
     <div>
-        <img id="video-stream" src="/video_feed" alt="Video Stream">
+        <video id="video-stream" autoplay></video>
     </div>
     <script>
-        function startTimer(duration, display, callback) {
-            var timer = duration, seconds;
-            var interval = setInterval(function () {
-                seconds = parseInt(timer % 60, 10);
-                seconds = seconds < 10 ? "0" + seconds : seconds;
+        async function startVideoStream() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                const videoElement = document.getElementById('video-stream');
+                videoElement.srcObject = stream;
 
-                display.textContent = "Starting capture in " + seconds + " seconds...";
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+                canvas.width = videoElement.videoWidth;
+                canvas.height = videoElement.videoHeight;
 
-                if (--timer < 0) {
-                    clearInterval(interval);
-                    display.textContent = "";
-                    if (callback) callback();
+                function captureFrame() {
+                    context.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+                    const imageData = canvas.toDataURL('image/jpeg');
+                    sendFrameToServer(imageData);
+                    requestAnimationFrame(captureFrame);
                 }
-            }, 1000);
+
+                captureFrame();
+            } catch (error) {
+                console.error('Error accessing the camera', error);
+            }
         }
+
+        function sendFrameToServer(imageData) {
+            fetch('/video_feed', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ image: imageData })
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            startVideoStream();
+        });
 
         document.getElementById('capture-form').addEventListener('submit', function (event) {
             event.preventDefault();
