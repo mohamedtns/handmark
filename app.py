@@ -24,6 +24,74 @@ num_samples = 0
 samples_captured = 0
 capturing_complete = False
 
+# Capture video thread
+class VideoCaptureThread(threading.Thread):
+    def __init__(self):
+        threading.Thread.__init__(self)
+        self.stopped = False
+
+    def run(self):
+        global data, is_capturing, num_samples, samples_captured, current_class, is_predicting, trained_model, capturing_complete
+
+        cap = cv2.VideoCapture(0)
+        if not cap.isOpened():
+            print("Failed to open camera")
+            return
+
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+        with mp_holistic.Holistic(min_detection_confidence=0.5, min_tracking_confidence=0.5) as holistic:
+            while not self.stopped:
+                ret, frame = cap.read()
+                if not ret:
+                    print("Failed to capture image")
+                    break
+
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                results = holistic.process(frame_rgb)
+
+                if results.right_hand_landmarks or results.left_hand_landmarks:
+                    landmarks = []
+
+                    if results.right_hand_landmarks:
+                        for landmark in results.right_hand_landmarks.landmark:
+                            landmarks.extend([landmark.x, landmark.y, landmark.z])
+                        mp_drawing.draw_landmarks(
+                            frame, results.right_hand_landmarks, mp_holistic.HAND_CONNECTIONS,
+                            mp_drawing.DrawingSpec(color=(80, 22, 10), thickness=2, circle_radius=4),
+                            mp_drawing.DrawingSpec(color=(80, 44, 121), thickness=2, circle_radius=2)
+                        )
+
+                    if results.left_hand_landmarks:
+                        for landmark in results.left_hand_landmarks.landmark:
+                            landmarks.extend([landmark.x, landmark.y, landmark.z])
+                        mp_drawing.draw_landmarks(
+                            frame, results.left_hand_landmarks, mp_holistic.HAND_CONNECTIONS,
+                            mp_drawing.DrawingSpec(color=(121, 22, 76), thickness=2, circle_radius=4),
+                            mp_drawing.DrawingSpec(color=(121, 44, 250), thickness=2, circle_radius=2)
+                        )
+
+                    if is_capturing and samples_captured < num_samples:
+                        data.append([current_class] + landmarks)
+                        samples_captured += 1
+                        cv2.putText(frame, f'Capturing: {current_class} ({samples_captured}/{num_samples})', (10, 30),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2, cv2.LINE_AA)
+                        if samples_captured >= num_samples:
+                            capturing_complete = True
+
+                    if is_predicting and trained_model:
+                        prediction = trained_model.predict([landmarks])[0]
+                        cv2.putText(frame, f'Prediction: {prediction}', (10, 70),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+
+                _, buffer = cv2.imencode('.jpg', frame)
+                frame = buffer.tobytes()
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+
+        cap.release()
+
 @app.route('/')
 def index():
     return render_template('index.html')
